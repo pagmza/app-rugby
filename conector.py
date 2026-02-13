@@ -19,11 +19,30 @@ def conectar():
     return sh
 
 def cargar_datos(nombre_hoja="Jugadores"):
+    """
+    Carga datos usando get_all_values (fuerza bruta) para evitar
+    que se corte la tabla si hay filas extrañas.
+    """
     sh = conectar()
     try:
         worksheet = sh.worksheet(nombre_hoja)
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
+        
+        # CAMBIO CLAVE: Usamos get_all_values en lugar de get_all_records
+        # Esto trae TODO como una matriz de texto simple, sin interpretar nada.
+        raw_data = worksheet.get_all_values()
+        
+        # Si la hoja está vacía, devolvemos DataFrame vacío
+        if not raw_data:
+            return pd.DataFrame()
+
+        # La primera fila son los encabezados (headers)
+        headers = raw_data.pop(0)
+        
+        # Creamos el DataFrame manualmente
+        df = pd.DataFrame(raw_data, columns=headers)
+        
+        return df
+
     except gspread.exceptions.WorksheetNotFound:
         return pd.DataFrame()
 
