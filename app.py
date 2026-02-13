@@ -84,6 +84,8 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 def mostrar_dashboard(df_jugadores):
     st.title("📊 Tablero de Comando")
     
+    
+    # 1. CÁLCULO DE DISPONIBILIDAD
     total_plantel = len(df_jugadores)
     
     df_lesionados = conector.cargar_datos("Lesionados")
@@ -134,7 +136,7 @@ def mostrar_dashboard(df_jugadores):
 
     with c2:
         st.subheader("📈 Asistencia")
-        df_asistencia = conector.cargar_datos("DB_Asistencia")
+        # Ya cargamos df_asistencia arriba para el debug
         
         if not df_asistencia.empty:
             try:
@@ -230,12 +232,6 @@ def mostrar_plantel(df):
         # Mostramos las 3 métricas en fila
         m1, m2, m3 = st.columns(3)
         
-        # Helper para pintar el número del metric
-        def color_metric(val):
-            if val > 85: return "normal" # Streamlit usa verde por defecto en delta positivo, pero aquí usaremos texto
-            if val < 65: return "off"
-            return "normal"
-
         m1.metric("Año (Total)", f"{pct_anio:.0f}%", delta_color="normal") 
         m2.metric("Este Mes", f"{pct_mes:.0f}%")
         m3.metric("Esta Semana", f"{pct_semana:.0f}%")
@@ -305,7 +301,6 @@ def mostrar_plantel(df):
         st.info("👆 Selecciona un jugador arriba para ver su ficha completa.")
         
         # Mostramos Nombre y la nueva columna de Asistencia
-        # Configuramos para que se vea bonito
         st.dataframe(
             df[['Nombre Completo', 'Asistencia']], 
             use_container_width=True, 
