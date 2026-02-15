@@ -8,13 +8,56 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
+# --- ESTILOS CSS PERSONALIZADOS (SOLUCIÓN VISUAL) ---
+def inyectar_css():
+    st.markdown("""
+        <style>
+        /* --- AJUSTES PARA MÓVILES --- */
+        @media (max-width: 768px) {
+            /* Forzar que las columnas se mantengan en fila (horizontal) y no se apilen */
+            div[data-testid="column"] {
+                width: auto !important;
+                flex: 1 1 auto !important;
+                min-width: 50px !important; /* Mínimo para que no desaparezcan */
+                padding: 0 2px !important; /* Reducir espacio entre columnas */
+            }
+            
+            /* Ajustar textos para que quepan en pantalla pequeña */
+            div[data-testid="stMetricLabel"] p {
+                font-size: 10px !important; /* Título más pequeño (ej: Fowards) */
+                white-space: nowrap !important; /* Evitar que se rompa en dos líneas */
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            div[data-testid="stMetricValue"] div {
+                font-size: 20px !important; /* Número más compacto */
+            }
+            div[data-testid="stMetricDelta"] div {
+                font-size: 10px !important; /* Delta (flechita) pequeña */
+            }
+        }
+
+        /* --- ESTILO TIPO TARJETA PARA LAS MÉTRICAS --- */
+        div[data-testid="stMetric"] {
+            background-color: #1E1E1E; /* Fondo oscuro elegante */
+            border: 1px solid #333;    /* Borde sutil */
+            border-radius: 8px;        /* Bordes redondeados */
+            padding: 10px 5px;         /* Espacio interno */
+            text-align: center;        /* Centrar todo */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Sombra suave */
+        }
+        
+        /* Ocultar el label "normal" de las métricas si ocupa mucho espacio */
+        div[data-testid="stMetricLabel"] {
+            display: flex;
+            justify-content: center;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+
 # --- FUNCIONES DE LIMPIEZA ---
 def limpiar_datos_asistencia(df):
-    """
-    Función de limpieza estándar.
-    """
     if df.empty: return df
-
     # Identificamos columnas por posición
     col_fecha = df.columns[0]
     col_nombre = df.columns[1]
@@ -25,9 +68,8 @@ def limpiar_datos_asistencia(df):
     # 2. Limpiar Fechas
     df['fecha_dt'] = pd.to_datetime(df[col_fecha], dayfirst=True, format='mixed', errors='coerce').dt.date
     
-    # 3. Eliminar filas sin fecha (Esto asegura que el desplegable solo muestre fechas reales)
+    # 3. Eliminar filas sin fecha
     df = df.dropna(subset=['fecha_dt'])
-    
     return df
 
 # --- FUNCIONES DE CÁLCULO ---
@@ -65,9 +107,11 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 
 # --- PANTALLAS ---
 def mostrar_dashboard(df_jugadores):
+    # INYECTAMOS EL CSS AQUÍ
+    inyectar_css()
+    
     st.title("📊 Tablero de Comando")
     
-    # Carga inicial
     df_asistencia = conector.cargar_datos("DB_Asistencia")
     
     # Mapa de tipos
@@ -79,7 +123,7 @@ def mostrar_dashboard(df_jugadores):
                 nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
             mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
 
-    # --- MÉTRICAS GLOBALES ---
+    # --- MÉTRICAS GLOBALES (3 Columnas) ---
     total_plantel = len(df_jugadores)
     df_lesionados = conector.cargar_datos("Lesionados")
     lesionados_activos = 0
@@ -93,29 +137,25 @@ def mostrar_dashboard(df_jugadores):
     disponibles = total_plantel - lesionados_activos
     porcentaje_disp = (disponibles / total_plantel) if total_plantel > 0 else 0
 
+    # Usamos st.columns normal, el CSS se encargará de mantenerlos horizontales en móvil
     c1, c2, c3 = st.columns(3)
-    c1.metric("Plantel Total", total_plantel)
+    c1.metric("Plantel", total_plantel)
     c2.metric("Disponibles", disponibles, delta=f"{porcentaje_disp:.0%}")
-    c3.metric("Lesionados", lesionados_activos, delta=-lesionados_activos, delta_color="inverse")
+    c3.metric("Bajas", lesionados_activos, delta=-lesionados_activos, delta_color="inverse")
     
     st.divider()
 
-    # --- DETALLE ASISTENCIA POR DÍA (MODIFICADO) ---
-    st.subheader("📅 Detalle de Asistencia por Día")
+    # --- DETALLE ASISTENCIA POR DÍA ---
+    st.subheader("📅 Asistencia por Día")
     
     if not df_asistencia.empty:
-        # Limpiamos los datos (esto elimina fechas vacías o inválidas)
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
-        
-        # Obtenemos SOLO las fechas que quedaron después de limpiar (fechas con asistencia real)
         fechas_unicas = sorted(df_asistencia['fecha_dt'].unique(), reverse=True)
         
-        # Selector
         fecha_selecc = st.selectbox("Selecciona Fecha:", fechas_unicas)
         
         if fecha_selecc:
             asistentes_hoy = df_asistencia[df_asistencia['fecha_dt'] == fecha_selecc]
-            # Obtenemos la lista y la ORDENAMOS alfabéticamente
             lista_nombres_hoy = sorted(asistentes_hoy.iloc[:, 1].unique())
             
             total_hoy = len(lista_nombres_hoy)
@@ -134,31 +174,25 @@ def mostrar_dashboard(df_jugadores):
                 else:
                     sin_id += 1
             
-            # Contadores
+            # --- AJUSTE PARA 4 MÉTRICAS ---
+            # En móvil 4 en una fila es muy apretado. El CSS intentará ajustarlo,
+            # pero reducimos los textos de los títulos para ayudar.
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Total", total_hoy, border=True)
-            k2.metric("Forwards 🐗", fwds, border=True)
-            k3.metric("Backs 🏃", backs, border=True)
-            if sin_id > 0:
-                k4.metric("Sin Identificar", sin_id, border=True)
-            else:
-                k4.metric("Identificados", "100%", border=True)
+            k1.metric("Total", total_hoy)
+            k2.metric("Fwds 🐗", fwds)
+            k3.metric("Backs 🏃", backs)
+            # Si hay muchos sin ID, se muestra rojo
+            delta_id = f"-{sin_id}" if sin_id > 0 else None
+            color_id = "inverse" if sin_id > 0 else "off"
+            k4.metric("S/Identif.", sin_id, delta=delta_id, delta_color=color_id)
             
-            # --- NUEVO: LISTADO DE NOMBRES ---
             st.write("---")
-            st.write(f"**📜 Lista de presentes ({fecha_selecc.strftime('%d/%m/%Y')}):**")
-            
-            # Creamos un DataFrame simple para mostrar la lista bonita
-            df_lista = pd.DataFrame(lista_nombres_hoy, columns=["Nombre del Jugador"])
-            st.dataframe(
-                df_lista, 
-                use_container_width=True, 
-                hide_index=True,
-                height=300 # Altura fija con scroll para no ocupar toda la pantalla
-            )
+            with st.expander(f"📜 Ver lista ({total_hoy})", expanded=False):
+                df_lista = pd.DataFrame(lista_nombres_hoy, columns=["Nombre del Jugador"])
+                st.dataframe(df_lista, use_container_width=True, hide_index=True)
 
     else:
-        st.info("No hay registros de asistencia.")
+        st.info("No hay registros.")
 
     st.divider()
 
@@ -170,7 +204,7 @@ def mostrar_dashboard(df_jugadores):
             source = df_jugadores['Tipo'].value_counts().reset_index()
             source.columns = ['Tipo', 'Cantidad']
             base = alt.Chart(source).encode(theta=alt.Theta("Cantidad", stack=True), color="Tipo")
-            pie = base.mark_arc(outerRadius=100) + base.mark_text(radius=120).encode(text="Cantidad", color=alt.value("black"))
+            pie = base.mark_arc(outerRadius=80) + base.mark_text(radius=100).encode(text="Cantidad", color=alt.value("black"))
             st.altair_chart(pie, use_container_width=True)
 
     with col_der:
@@ -178,7 +212,6 @@ def mostrar_dashboard(df_jugadores):
         if not df_asistencia.empty:
             diaria = df_asistencia.groupby('fecha_dt')[df_asistencia.columns[1]].nunique().reset_index()
             diaria.columns = ['Fecha', 'Jugadores']
-            
             grafico = alt.Chart(diaria).mark_area(color="#2ecc71", opacity=0.8, line=True).encode(
                 x=alt.X('Fecha:T', axis=alt.Axis(format='%d/%m')),
                 y='Jugadores:Q',
@@ -203,11 +236,9 @@ def mostrar_plantel(df_jugadores):
     if not df_asistencia.empty:
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         total_days = df_asistencia['fecha_dt'].nunique()
-        
         if total_days > 0:
             col_nombre_asist = df_asistencia.columns[1]
             conteos = df_asistencia.groupby(col_nombre_asist)['fecha_dt'].nunique()
-            
             for jugador, count in conteos.items():
                 pct = (count / total_days) * 100
                 emoji, _ = calcular_estado_asistencia(pct)
@@ -223,9 +254,10 @@ def mostrar_plantel(df_jugadores):
     if seleccion:
         datos = df_jugadores[df_jugadores['Nombre Completo'] == seleccion].iloc[0]
         st.subheader(f"👤 {seleccion}")
-        
         p_anio, p_mes, p_sem = obtener_metricas_jugador(df_asistencia, seleccion)
         
+        # Aquí también inyectamos CSS para que estas métricas se vean bien
+        inyectar_css()
         m1, m2, m3 = st.columns(3)
         m1.metric("Año", f"{p_anio:.0f}%")
         m2.metric("Mes", f"{p_mes:.0f}%")
@@ -264,7 +296,6 @@ def main():
     if df.empty:
         st.error("No se pudo cargar la lista de jugadores.")
         return
-        
     df.columns = [c.strip().capitalize() for c in df.columns]
 
     if menu == "📊 Dashboard": mostrar_dashboard(df)
