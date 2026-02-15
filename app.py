@@ -8,68 +8,79 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
-# --- CSS AJUSTADO AL CONTENIDO ---
-def inyectar_css():
-    st.markdown("""
-        <style>
-        /* --- ESTILOS PARA MÓVILES (max-width: 768px) --- */
-        @media (max-width: 768px) {
-            
-            /* 1. CONTENEDOR FLEXIBLE: Las columnas se pegan una al lado de la otra */
-            div[data-testid="stHorizontalBlock"] {
-                flex-direction: row !important;
-                flex-wrap: nowrap !important; /* No bajar de línea */
-                gap: 4px !important;          /* Espacio mínimo entre tarjetas */
-                overflow-x: auto !important;  /* Si no caben, permite deslizar lateralmente */
-                padding-bottom: 5px;          /* Espacio para la barra de scroll si aparece */
-            }
+# --- FUNCIÓN NUEVA: TARJETAS HTML FLEXIBLES (LA SOLUCIÓN) ---
+def renderizar_tarjetas_flex(total, fwds, backs, sin_id):
+    """
+    Genera tarjetas HTML que realmente se ajustan al contenido y bajan de línea.
+    """
+    
+    # Color para "Sin Identificar" (Rojo si hay errores, Gris si no)
+    color_sin_id = "#ff4b4b" if sin_id > 0 else "#262730"
+    borde_sin_id = "#ff4b4b" if sin_id > 0 else "#464b59"
 
-            /* 2. COLUMNAS: Ancho automático según contenido */
-            div[data-testid="column"] {
-                flex: 0 1 auto !important;    /* 0=No crecer, 1=Encoger si hace falta, auto=Basado en contenido */
-                width: auto !important;       /* El ancho lo define el texto */
-                min-width: min-content !important; /* Que no se aplaste más de lo necesario */
-            }
-
-            /* 3. TEXTOS: Reducir tamaños para compactar */
-            div[data-testid="stMetricLabel"] p {
-                font-size: 10px !important;
-                font-weight: 600 !important;
-            }
-            div[data-testid="stMetricValue"] div {
-                font-size: 16px !important; /* Número visible pero no gigante */
-            }
-            div[data-testid="stMetricDelta"] div {
-                font-size: 9px !important;
-                display: none !important; /* Ocultamos el delta en la fila de 4 para ahorrar espacio vertical */
-            }
-        }
-
-        /* --- ESTILO TARJETA (Global) --- */
-        div[data-testid="stMetric"] {
+    # HTML y CSS inyectado directamente
+    html = f"""
+    <style>
+        .flex-container {{
+            display: flex;
+            flex-wrap: wrap;       /* ESTO HACE LA MAGIA: Baja de línea si no cabe */
+            gap: 8px;              /* Espacio entre tarjetas */
+            justify-content: center; /* Centrar tarjetas */
+            margin-bottom: 20px;
+        }}
+        .flex-card {{
             background-color: #262730;
             border: 1px solid #464b59;
-            border-radius: 6px;
-            padding: 4px 6px !important; /* Padding MUY reducido para ajustar alto y ancho */
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100% !important; /* Altura automática */
-            min-height: 50px !important;
-        }
+            border-radius: 8px;
+            padding: 8px 12px;     /* Relleno ajustado */
+            text-align: center;
+            flex: 0 1 auto;        /* Ancho automático según contenido */
+            min-width: 60px;       /* Ancho mínimo para no romperse */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }}
+        .flex-card h3 {{
+            margin: 0;
+            font-size: 12px;
+            color: #fafafa;
+            font-weight: normal;
+            white-space: nowrap;   /* Título en una sola línea */
+        }}
+        .flex-card p {{
+            margin: 0;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+        }}
+        /* Estilo especial para alertas */
+        .card-alert {{
+            background-color: {color_sin_id}; 
+            border: 1px solid {borde_sin_id};
+        }}
+    </style>
 
-        /* Forzar que el contenido de la métrica no tenga márgenes extra */
-        div[data-testid="stMetric"] > div {
-            width: 100% !important;
-        }
+    <div class="flex-container">
+        <div class="flex-card">
+            <h3>Total</h3>
+            <p>{total}</p>
+        </div>
         
-        /* Ajuste fino para centrar textos */
-        div[data-testid="stMetricLabel"] { justify-content: center; margin-bottom: 0px !important; }
-        div[data-testid="stMetricValue"] { justify-content: center; }
-        
-        </style>
-    """, unsafe_allow_html=True)
+        <div class="flex-card">
+            <h3>Fwds 🐗</h3>
+            <p>{fwds}</p>
+        </div>
+
+        <div class="flex-card">
+            <h3>Backs 🏃</h3>
+            <p>{backs}</p>
+        </div>
+
+        <div class="flex-card {'card-alert' if sin_id > 0 else ''}">
+            <h3>S/Identif.</h3>
+            <p>{sin_id}</p>
+        </div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 # --- FUNCIONES DE LIMPIEZA ---
 def limpiar_datos_asistencia(df):
@@ -109,7 +120,6 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 
 # --- PANTALLAS ---
 def mostrar_dashboard(df_jugadores):
-    inyectar_css()
     st.title("📊 Tablero de Comando")
     
     df_asistencia = conector.cargar_datos("DB_Asistencia")
@@ -122,7 +132,8 @@ def mostrar_dashboard(df_jugadores):
                 nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
             mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
 
-    # --- MÉTRICAS GLOBALES ---
+    # --- MÉTRICAS GLOBALES (Arriba) ---
+    # Estas las dejamos con st.metric normal porque se ven bien en 3 columnas
     total_plantel = len(df_jugadores)
     df_lesionados = conector.cargar_datos("Lesionados")
     lesionados_activos = 0
@@ -143,7 +154,7 @@ def mostrar_dashboard(df_jugadores):
     
     st.divider()
 
-    # --- ASISTENCIA POR DÍA ---
+    # --- ASISTENCIA POR DÍA (AQUÍ USAMOS LA NUEVA FUNCIÓN) ---
     st.subheader("📅 Asistencia por Día")
     
     if not df_asistencia.empty:
@@ -169,13 +180,9 @@ def mostrar_dashboard(df_jugadores):
                 else:
                     sin_id += 1
             
-            # Usamos st.columns pero el CSS se encargará de ajustar el ancho
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Total", total_hoy)
-            k2.metric("Fwds 🐗", fwds)
-            k3.metric("Backs 🏃", backs)
-            # Quitamos el delta en Sin Identificar para ahorrar espacio vertical
-            k4.metric("S/Id.", sin_id) 
+            # --- REEMPLAZO DE ST.COLUMNS POR NUESTRO HTML FLEXIBLE ---
+            renderizar_tarjetas_flex(total_hoy, fwds, backs, sin_id)
+            # ---------------------------------------------------------
             
             st.write("---")
             with st.expander(f"📜 Ver lista ({total_hoy})", expanded=False):
@@ -238,7 +245,6 @@ def mostrar_plantel(df_jugadores):
         datos = df_jugadores[df_jugadores['Nombre Completo'] == seleccion].iloc[0]
         st.subheader(f"👤 {seleccion}")
         p_anio, p_mes, p_sem = obtener_metricas_jugador(df_asistencia, seleccion)
-        inyectar_css()
         m1, m2, m3 = st.columns(3)
         m1.metric("Año", f"{p_anio:.0f}%")
         m2.metric("Mes", f"{p_mes:.0f}%")
