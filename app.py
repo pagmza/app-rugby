@@ -8,67 +8,65 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
-# --- ESTILOS CSS PERSONALIZADOS (SOLUCIÓN VISUAL) ---
+# --- ESTILOS CSS AGRESIVOS PARA MÓVIL ---
 def inyectar_css():
     st.markdown("""
         <style>
-        /* --- AJUSTES PARA MÓVILES --- */
+        /* --- REGLAS SOLO PARA CELULARES (max-width: 768px) --- */
         @media (max-width: 768px) {
-            /* Forzar que las columnas se mantengan en fila (horizontal) y no se apilen */
-            div[data-testid="column"] {
-                width: auto !important;
-                flex: 1 1 auto !important;
-                min-width: 50px !important; /* Mínimo para que no desaparezcan */
-                padding: 0 2px !important; /* Reducir espacio entre columnas */
-            }
             
-            /* Ajustar textos para que quepan en pantalla pequeña */
+            /* 1. OBLIGAR AL CONTENEDOR A SER HORIZONTAL */
+            /* Streamlit usa 'stHorizontalBlock' para las columnas. Le prohibimos envolver (wrap). */
+            div[data-testid="stHorizontalBlock"] {
+                flex-direction: row !important; /* Siempre en fila */
+                flex-wrap: nowrap !important;   /* Prohibido bajar de línea */
+                gap: 4px !important;            /* Espacio pequeño entre tarjetas */
+            }
+
+            /* 2. OBLIGAR A LAS COLUMNAS A ENCOGERSE */
+            div[data-testid="column"] {
+                flex: 1 1 0px !important; /* Crecer y encoger equitativamente */
+                min-width: 0 !important;  /* Permitir encogerse al máximo posible */
+                width: auto !important;
+                padding: 0 !important;    /* Sin relleno extra */
+            }
+
+            /* 3. ACHICAR FUENTE PARA QUE QUEPAN 4 EN FILA */
             div[data-testid="stMetricLabel"] p {
-                font-size: 10px !important; /* Título más pequeño (ej: Fowards) */
-                white-space: nowrap !important; /* Evitar que se rompa en dos líneas */
-                overflow: hidden !important;
-                text-overflow: ellipsis !important;
+                font-size: 9px !important; /* Título pequeñito */
             }
             div[data-testid="stMetricValue"] div {
-                font-size: 20px !important; /* Número más compacto */
+                font-size: 14px !important; /* Número mediano */
             }
             div[data-testid="stMetricDelta"] div {
-                font-size: 10px !important; /* Delta (flechita) pequeña */
+                font-size: 9px !important; /* Flechita pequeña */
             }
         }
 
-        /* --- ESTILO TIPO TARJETA PARA LAS MÉTRICAS --- */
+        /* --- ESTILO DE TARJETA (Global) --- */
         div[data-testid="stMetric"] {
-            background-color: #1E1E1E; /* Fondo oscuro elegante */
-            border: 1px solid #333;    /* Borde sutil */
-            border-radius: 8px;        /* Bordes redondeados */
-            padding: 10px 5px;         /* Espacio interno */
-            text-align: center;        /* Centrar todo */
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Sombra suave */
+            background-color: #262730; /* Gris oscuro oficial */
+            border: 1px solid #464b59;
+            border-radius: 6px;
+            padding: 8px 2px; /* Muy poco padding lateral para ganar espacio */
+            text-align: center;
+            overflow: hidden; /* Que no se salga nada */
         }
-        
-        /* Ocultar el label "normal" de las métricas si ocupa mucho espacio */
-        div[data-testid="stMetricLabel"] {
-            display: flex;
-            justify-content: center;
-        }
+
+        /* Centrar todo el contenido de la métrica */
+        div[data-testid="stMetricLabel"] { justify-content: center; }
+        div[data-testid="stMetricValue"] { justify-content: center; }
+        div[data-testid="stMetricDelta"] { justify-content: center; }
         </style>
     """, unsafe_allow_html=True)
 
 # --- FUNCIONES DE LIMPIEZA ---
 def limpiar_datos_asistencia(df):
     if df.empty: return df
-    # Identificamos columnas por posición
     col_fecha = df.columns[0]
     col_nombre = df.columns[1]
-
-    # 1. Limpiar Nombres
     df[col_nombre] = df[col_nombre].astype(str).str.strip() 
-
-    # 2. Limpiar Fechas
     df['fecha_dt'] = pd.to_datetime(df[col_fecha], dayfirst=True, format='mixed', errors='coerce').dt.date
-    
-    # 3. Eliminar filas sin fecha
     df = df.dropna(subset=['fecha_dt'])
     return df
 
@@ -80,41 +78,31 @@ def calcular_estado_asistencia(porcentaje):
 
 def obtener_metricas_jugador(df_asistencia, nombre_jugador):
     if df_asistencia.empty: return 0, 0, 0
-
     hoy = datetime.now().date()
     inicio_mes = hoy.replace(day=1)
     inicio_semana = hoy - timedelta(days=hoy.weekday())
-
     df_mes = df_asistencia[df_asistencia['fecha_dt'] >= inicio_mes]
     df_semana = df_asistencia[df_asistencia['fecha_dt'] >= inicio_semana]
-
     total_anio = df_asistencia['fecha_dt'].nunique()
     total_mes = df_mes['fecha_dt'].nunique()
     total_semana = df_semana['fecha_dt'].nunique()
-
     col_nombre = df_asistencia.columns[1]
     nombre_jugador = str(nombre_jugador).strip()
-    
     asist_anio = df_asistencia[df_asistencia[col_nombre] == nombre_jugador]['fecha_dt'].nunique()
     asist_mes = df_mes[df_mes[col_nombre] == nombre_jugador]['fecha_dt'].nunique()
     asist_semana = df_semana[df_semana[col_nombre] == nombre_jugador]['fecha_dt'].nunique()
-
     pct_anio = (asist_anio / total_anio * 100) if total_anio > 0 else 0
     pct_mes = (asist_mes / total_mes * 100) if total_mes > 0 else 0
     pct_semana = (asist_semana / total_semana * 100) if total_semana > 0 else 0
-
     return pct_anio, pct_mes, pct_semana
 
 # --- PANTALLAS ---
 def mostrar_dashboard(df_jugadores):
-    # INYECTAMOS EL CSS AQUÍ
     inyectar_css()
-    
     st.title("📊 Tablero de Comando")
     
     df_asistencia = conector.cargar_datos("DB_Asistencia")
     
-    # Mapa de tipos
     mapa_tipos = {}
     if not df_jugadores.empty and 'Nombre' in df_jugadores.columns and 'Tipo' in df_jugadores.columns:
         for index, row in df_jugadores.iterrows():
@@ -137,7 +125,6 @@ def mostrar_dashboard(df_jugadores):
     disponibles = total_plantel - lesionados_activos
     porcentaje_disp = (disponibles / total_plantel) if total_plantel > 0 else 0
 
-    # Usamos st.columns normal, el CSS se encargará de mantenerlos horizontales en móvil
     c1, c2, c3 = st.columns(3)
     c1.metric("Plantel", total_plantel)
     c2.metric("Disponibles", disponibles, delta=f"{porcentaje_disp:.0%}")
@@ -145,13 +132,12 @@ def mostrar_dashboard(df_jugadores):
     
     st.divider()
 
-    # --- DETALLE ASISTENCIA POR DÍA ---
+    # --- ASISTENCIA POR DÍA ---
     st.subheader("📅 Asistencia por Día")
     
     if not df_asistencia.empty:
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         fechas_unicas = sorted(df_asistencia['fecha_dt'].unique(), reverse=True)
-        
         fecha_selecc = st.selectbox("Selecciona Fecha:", fechas_unicas)
         
         if fecha_selecc:
@@ -162,11 +148,9 @@ def mostrar_dashboard(df_jugadores):
             fwds = 0
             backs = 0
             sin_id = 0
-            
             for jugador in lista_nombres_hoy:
                 nombre_limpio = str(jugador).strip().lower()
                 tipo = mapa_tipos.get(nombre_limpio, "desconocido")
-                
                 if "forward" in tipo or "foward" in tipo or "fwd" in tipo or "pilar" in tipo or "segunda" in tipo or "ala" in tipo or "octavo" in tipo or "hooker" in tipo:
                     fwds += 1
                 elif "back" in tipo or "3/4" in tipo or "medio" in tipo or "apertura" in tipo or "centro" in tipo or "wing" in tipo or "fullback" in tipo:
@@ -174,23 +158,18 @@ def mostrar_dashboard(df_jugadores):
                 else:
                     sin_id += 1
             
-            # --- AJUSTE PARA 4 MÉTRICAS ---
-            # En móvil 4 en una fila es muy apretado. El CSS intentará ajustarlo,
-            # pero reducimos los textos de los títulos para ayudar.
+            # 4 Columnas: El CSS forzará que estén en fila
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Total", total_hoy)
             k2.metric("Fwds 🐗", fwds)
             k3.metric("Backs 🏃", backs)
-            # Si hay muchos sin ID, se muestra rojo
-            delta_id = f"-{sin_id}" if sin_id > 0 else None
-            color_id = "inverse" if sin_id > 0 else "off"
-            k4.metric("S/Identif.", sin_id, delta=delta_id, delta_color=color_id)
+            # Acortamos "Sin Identificar" a "S/Id." para que quepa en el celular
+            k4.metric("S/Id.", sin_id, delta=f"-{sin_id}" if sin_id > 0 else None, delta_color="inverse" if sin_id > 0 else "off")
             
             st.write("---")
             with st.expander(f"📜 Ver lista ({total_hoy})", expanded=False):
                 df_lista = pd.DataFrame(lista_nombres_hoy, columns=["Nombre del Jugador"])
                 st.dataframe(df_lista, use_container_width=True, hide_index=True)
-
     else:
         st.info("No hay registros.")
 
@@ -221,7 +200,6 @@ def mostrar_dashboard(df_jugadores):
 
 def mostrar_plantel(df_jugadores):
     st.header("🏉 Plantel Superior")
-    
     if 'Nombre' in df_jugadores.columns:
         df_jugadores['Nombre'] = df_jugadores['Nombre'].astype(str).str.strip()
     if 'Apellido' in df_jugadores.columns:
@@ -229,10 +207,8 @@ def mostrar_plantel(df_jugadores):
         df_jugadores['Nombre Completo'] = df_jugadores['Nombre'] + " " + df_jugadores['Apellido']
     else:
         df_jugadores['Nombre Completo'] = df_jugadores['Nombre']
-
     df_asistencia = conector.cargar_datos("DB_Asistencia")
     mapa_asistencia = {}
-    
     if not df_asistencia.empty:
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         total_days = df_asistencia['fecha_dt'].nunique()
@@ -243,27 +219,20 @@ def mostrar_plantel(df_jugadores):
                 pct = (count / total_days) * 100
                 emoji, _ = calcular_estado_asistencia(pct)
                 mapa_asistencia[jugador] = f"{emoji} {pct:.0f}%"
-
     df_jugadores['Asistencia'] = df_jugadores['Nombre Completo'].apply(lambda x: mapa_asistencia.get(x, "🔴 0%"))
-    
     lista = sorted(df_jugadores['Nombre Completo'].unique().tolist())
     seleccion = st.selectbox("Buscar Jugador:", lista, index=None, placeholder="Escribe para buscar...")
-
     st.divider()
-
     if seleccion:
         datos = df_jugadores[df_jugadores['Nombre Completo'] == seleccion].iloc[0]
         st.subheader(f"👤 {seleccion}")
         p_anio, p_mes, p_sem = obtener_metricas_jugador(df_asistencia, seleccion)
-        
-        # Aquí también inyectamos CSS para que estas métricas se vean bien
         inyectar_css()
         m1, m2, m3 = st.columns(3)
         m1.metric("Año", f"{p_anio:.0f}%")
         m2.metric("Mes", f"{p_mes:.0f}%")
         m3.metric("Semana", f"{p_sem:.0f}%")
         st.progress(p_anio/100)
-        
         with st.expander("Ver ficha completa"):
             st.write(datos.astype(str))
     else:
@@ -289,7 +258,6 @@ def modulo_medico(df):
     df_l = conector.cargar_datos("Lesionados")
     st.dataframe(df_l, use_container_width=True)
 
-# --- MAIN ---
 def main():
     menu = st.sidebar.radio("Ir a:", ["📊 Dashboard", "Plantel", "Asistencia", "Médico"])
     df = conector.cargar_datos("Jugadores")
@@ -297,7 +265,6 @@ def main():
         st.error("No se pudo cargar la lista de jugadores.")
         return
     df.columns = [c.strip().capitalize() for c in df.columns]
-
     if menu == "📊 Dashboard": mostrar_dashboard(df)
     elif menu == "Plantel": mostrar_plantel(df)
     elif menu == "Asistencia": modulo_asistencia(df)
