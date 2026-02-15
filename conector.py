@@ -1,83 +1,82 @@
 import pandas as pd
 import gspread
 import streamlit as st
-from datetime import datetime
+import os
 
 def conectar():
-    """Conexión híbrida: Intenta usar Secretos de Nube, si falla, busca archivo local."""
-    try:
-        # 1. Intento Nube (Streamlit Cloud)
-        # Busca las credenciales dentro de la configuración segura del servidor
-        dict_credenciales = st.secrets["gcp_service_account"]
-        gc = gspread.service_account_from_dict(dict_credenciales)
-    except:
-        # 2. Intento Local (Tu computadora)
-        # Si falla lo anterior, busca el archivo json clásico
-        gc = gspread.service_account(filename='credentials.json')
-        
-    sh = gc.open("Gestion_Plantel_Rugby")
-    return sh
-
-def cargar_datos(nombre_hoja="Jugadores"):
     """
-    Carga datos usando get_all_values (fuerza bruta) para evitar
-    que se corte la tabla si hay filas extrañas.
+    Establece la conexión con Google Sheets.
+    Prioriza el archivo local 'credentials.json' para evitar errores en tu PC.
+    """
+    try:
+        # 1. MODO LOCAL: ¿Tienes el archivo 'credentials.json' en la carpeta?
+        if os.path.exists("credentials.json"):
+            gc = gspread.service_account(filename="credentials.json")
+            
+        # 2. MODO NUBE: Si no hay archivo local, buscamos en los Secrets de Streamlit
+        elif "gcp_service_account" in st.secrets:
+            creds_dict = dict(st.secrets["gcp_service_account"])
+            
+            # Corrección para la clave privada
+            if "private_key" in creds_dict:
+                creds_dict["private_key"] = creds_dict["private_key"].replace("\\n", "\n")
+            
+            gc = gspread.service_account_from_dict(creds_dict)
+            
+        else:
+            st.error("🚨 Error Crítico: No se encontraron credenciales (ni archivo local ni secrets).")
+            return None
+
+        # --- ABRIMOS EL ARCHIVO POR SU NOMBRE EXACTO ---
+        sh = gc.open("Gestion_Plantel_Rugby")
+        return sh
+
+    except Exception as e:
+        st.error(f"Error de Conexión: No se pudo abrir la hoja de cálculo. Detalle: {e}")
+        return None
+
+def cargar_datos(nombre_hoja):
+    """
+    Descarga los datos de una pestaña específica.
     """
     sh = conectar()
+    
+    if sh is None:
+        return pd.DataFrame()
+
     try:
         worksheet = sh.worksheet(nombre_hoja)
+        datos_crudos = worksheet.get_all_values()
         
-        # CAMBIO CLAVE: Usamos get_all_values en lugar de get_all_records
-        # Esto trae TODO como una matriz de texto simple, sin interpretar nada.
-        raw_data = worksheet.get_all_values()
-        
-        # Si la hoja está vacía, devolvemos DataFrame vacío
-        if not raw_data:
+        if not datos_crudos:
             return pd.DataFrame()
 
-        # La primera fila son los encabezados (headers)
-        headers = raw_data.pop(0)
-        
-        # Creamos el DataFrame manualmente
-        df = pd.DataFrame(raw_data, columns=headers)
+        encabezados = datos_crudos.pop(0)
+        df = pd.DataFrame(datos_crudos, columns=encabezados)
+        df.columns = [str(c).strip() for c in df.columns]
         
         return df
 
     except gspread.exceptions.WorksheetNotFound:
+        st.error(f"Error: No existe la pestaña llamada '{nombre_hoja}' en 'Gestion_Plantel_Rugby'.")
+        return pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error leyendo la hoja '{nombre_hoja}': {e}")
         return pd.DataFrame()
 
-def guardar_registro(nombre_hoja, lista_datos):
+def guardar_registro(nombre_hoja, datos_nuevos):
+    """
+    Agrega una fila nueva al final de la hoja especificada.
+    """
     sh = conectar()
+    
+    if sh is None:
+        return False
+
     try:
         worksheet = sh.worksheet(nombre_hoja)
-        
-        # --- LÓGICA ANTI-DUPLICADOS (Solo para DB_Asistencia) ---
-        if nombre_hoja == "DB_Asistencia":
-            jugador_a_guardar = lista_datos[0]
-            registros = worksheet.get_all_values()
-            
-            if len(registros) > 1:
-                df_temp = pd.DataFrame(registros[1:], columns=registros[0])
-                col_fecha = df_temp.columns[0]
-                col_jugador = df_temp.columns[1]
-                
-                # Conversión de fecha robusta
-                df_temp['fecha_dt'] = pd.to_datetime(df_temp[col_fecha], dayfirst=True, errors='coerce').dt.date
-                fecha_hoy = datetime.now().date()
-                
-                duplicado = df_temp[
-                    (df_temp[col_jugador] == jugador_a_guardar) & 
-                    (df_temp['fecha_dt'] == fecha_hoy)
-                ]
-                
-                if not duplicado.empty:
-                    return "DUPLICADO" 
-
-        ahora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        fila_a_guardar = [ahora] + lista_datos
-        worksheet.append_row(fila_a_guardar)
+        worksheet.append_row(datos_nuevos)
         return True
-
     except Exception as e:
-        print(f"Error al guardar: {e}")
+        st.error(f"Error al guardar datos: {e}")
         return False
