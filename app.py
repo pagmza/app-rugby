@@ -8,55 +8,66 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
-# --- ESTILOS CSS AGRESIVOS PARA MÓVIL ---
+# --- CSS AJUSTADO AL CONTENIDO ---
 def inyectar_css():
     st.markdown("""
         <style>
-        /* --- REGLAS SOLO PARA CELULARES (max-width: 768px) --- */
+        /* --- ESTILOS PARA MÓVILES (max-width: 768px) --- */
         @media (max-width: 768px) {
             
-            /* 1. OBLIGAR AL CONTENEDOR A SER HORIZONTAL */
-            /* Streamlit usa 'stHorizontalBlock' para las columnas. Le prohibimos envolver (wrap). */
+            /* 1. CONTENEDOR FLEXIBLE: Las columnas se pegan una al lado de la otra */
             div[data-testid="stHorizontalBlock"] {
-                flex-direction: row !important; /* Siempre en fila */
-                flex-wrap: nowrap !important;   /* Prohibido bajar de línea */
-                gap: 4px !important;            /* Espacio pequeño entre tarjetas */
+                flex-direction: row !important;
+                flex-wrap: nowrap !important; /* No bajar de línea */
+                gap: 4px !important;          /* Espacio mínimo entre tarjetas */
+                overflow-x: auto !important;  /* Si no caben, permite deslizar lateralmente */
+                padding-bottom: 5px;          /* Espacio para la barra de scroll si aparece */
             }
 
-            /* 2. OBLIGAR A LAS COLUMNAS A ENCOGERSE */
+            /* 2. COLUMNAS: Ancho automático según contenido */
             div[data-testid="column"] {
-                flex: 1 1 0px !important; /* Crecer y encoger equitativamente */
-                min-width: 0 !important;  /* Permitir encogerse al máximo posible */
-                width: auto !important;
-                padding: 0 !important;    /* Sin relleno extra */
+                flex: 0 1 auto !important;    /* 0=No crecer, 1=Encoger si hace falta, auto=Basado en contenido */
+                width: auto !important;       /* El ancho lo define el texto */
+                min-width: min-content !important; /* Que no se aplaste más de lo necesario */
             }
 
-            /* 3. ACHICAR FUENTE PARA QUE QUEPAN 4 EN FILA */
+            /* 3. TEXTOS: Reducir tamaños para compactar */
             div[data-testid="stMetricLabel"] p {
-                font-size: 9px !important; /* Título pequeñito */
+                font-size: 10px !important;
+                font-weight: 600 !important;
             }
             div[data-testid="stMetricValue"] div {
-                font-size: 14px !important; /* Número mediano */
+                font-size: 16px !important; /* Número visible pero no gigante */
             }
             div[data-testid="stMetricDelta"] div {
-                font-size: 9px !important; /* Flechita pequeña */
+                font-size: 9px !important;
+                display: none !important; /* Ocultamos el delta en la fila de 4 para ahorrar espacio vertical */
             }
         }
 
-        /* --- ESTILO DE TARJETA (Global) --- */
+        /* --- ESTILO TARJETA (Global) --- */
         div[data-testid="stMetric"] {
-            background-color: #262730; /* Gris oscuro oficial */
+            background-color: #262730;
             border: 1px solid #464b59;
             border-radius: 6px;
-            padding: 8px 2px; /* Muy poco padding lateral para ganar espacio */
-            text-align: center;
-            overflow: hidden; /* Que no se salga nada */
+            padding: 4px 6px !important; /* Padding MUY reducido para ajustar alto y ancho */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100% !important; /* Altura automática */
+            min-height: 50px !important;
         }
 
-        /* Centrar todo el contenido de la métrica */
-        div[data-testid="stMetricLabel"] { justify-content: center; }
+        /* Forzar que el contenido de la métrica no tenga márgenes extra */
+        div[data-testid="stMetric"] > div {
+            width: 100% !important;
+        }
+        
+        /* Ajuste fino para centrar textos */
+        div[data-testid="stMetricLabel"] { justify-content: center; margin-bottom: 0px !important; }
         div[data-testid="stMetricValue"] { justify-content: center; }
-        div[data-testid="stMetricDelta"] { justify-content: center; }
+        
         </style>
     """, unsafe_allow_html=True)
 
@@ -111,7 +122,7 @@ def mostrar_dashboard(df_jugadores):
                 nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
             mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
 
-    # --- MÉTRICAS GLOBALES (3 Columnas) ---
+    # --- MÉTRICAS GLOBALES ---
     total_plantel = len(df_jugadores)
     df_lesionados = conector.cargar_datos("Lesionados")
     lesionados_activos = 0
@@ -158,13 +169,13 @@ def mostrar_dashboard(df_jugadores):
                 else:
                     sin_id += 1
             
-            # 4 Columnas: El CSS forzará que estén en fila
+            # Usamos st.columns pero el CSS se encargará de ajustar el ancho
             k1, k2, k3, k4 = st.columns(4)
             k1.metric("Total", total_hoy)
             k2.metric("Fwds 🐗", fwds)
             k3.metric("Backs 🏃", backs)
-            # Acortamos "Sin Identificar" a "S/Id." para que quepa en el celular
-            k4.metric("S/Id.", sin_id, delta=f"-{sin_id}" if sin_id > 0 else None, delta_color="inverse" if sin_id > 0 else "off")
+            # Quitamos el delta en Sin Identificar para ahorrar espacio vertical
+            k4.metric("S/Id.", sin_id) 
             
             st.write("---")
             with st.expander(f"📜 Ver lista ({total_hoy})", expanded=False):
