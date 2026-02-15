@@ -11,20 +11,21 @@ URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpap
 # --- FUNCIONES DE LIMPIEZA ---
 def limpiar_datos_asistencia(df):
     """
-    Función CLAVE: Limpia fechas y nombres para que los cálculos sean exactos.
+    Función de limpieza estándar.
     """
     if df.empty: return df
 
-    # 1. Limpiar Nombres (Columna 1): Quita espacios y estandariza
+    # Identificamos columnas por posición
+    col_fecha = df.columns[0]
     col_nombre = df.columns[1]
+
+    # 1. Limpiar Nombres
     df[col_nombre] = df[col_nombre].astype(str).str.strip() 
 
-    # 2. Limpiar Fechas (Columna 0)
-    col_fecha = df.columns[0]
-    # Convertimos a fecha usando format='mixed' para soportar 5/2/2026 y 05/02/2026
+    # 2. Limpiar Fechas
     df['fecha_dt'] = pd.to_datetime(df[col_fecha], dayfirst=True, format='mixed', errors='coerce').dt.date
     
-    # 3. BORRAR BASURA: Eliminamos filas donde la fecha no se entendió
+    # 3. Eliminar filas sin fecha (Esto asegura que el desplegable solo muestre fechas reales)
     df = df.dropna(subset=['fecha_dt'])
     
     return df
@@ -50,7 +51,6 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
     total_semana = df_semana['fecha_dt'].nunique()
 
     col_nombre = df_asistencia.columns[1]
-    # Filtramos asegurando que no haya espacios basura
     nombre_jugador = str(nombre_jugador).strip()
     
     asist_anio = df_asistencia[df_asistencia[col_nombre] == nombre_jugador]['fecha_dt'].nunique()
@@ -67,19 +67,16 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 def mostrar_dashboard(df_jugadores):
     st.title("📊 Tablero de Comando")
     
-    # 1. CARGA INICIAL DE DATOS (Vital para evitar errores)
+    # Carga inicial
     df_asistencia = conector.cargar_datos("DB_Asistencia")
     
-    # Preparar mapa de tipos (Para saber si es Foward o Back)
+    # Mapa de tipos
     mapa_tipos = {}
     if not df_jugadores.empty and 'Nombre' in df_jugadores.columns and 'Tipo' in df_jugadores.columns:
-        # Creamos un diccionario: {"juan perez": "Foward", "pedro": "Back"}
-        # Usamos minúsculas para facilitar la búsqueda
         for index, row in df_jugadores.iterrows():
             nombre_norm = str(row['Nombre']).strip().lower()
             if 'Apellido' in df_jugadores.columns:
                 nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
-            
             mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
 
     # --- MÉTRICAS GLOBALES ---
@@ -103,58 +100,72 @@ def mostrar_dashboard(df_jugadores):
     
     st.divider()
 
-    # --- NUEVA SECCIÓN: CONTADOR DE ASISTENCIA DIARIA ---
+    # --- DETALLE ASISTENCIA POR DÍA (MODIFICADO) ---
     st.subheader("📅 Detalle de Asistencia por Día")
     
     if not df_asistencia.empty:
+        # Limpiamos los datos (esto elimina fechas vacías o inválidas)
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         
-        # Selector de fechas (de la más nueva a la más vieja)
+        # Obtenemos SOLO las fechas que quedaron después de limpiar (fechas con asistencia real)
         fechas_unicas = sorted(df_asistencia['fecha_dt'].unique(), reverse=True)
+        
+        # Selector
         fecha_selecc = st.selectbox("Selecciona Fecha:", fechas_unicas)
         
         if fecha_selecc:
-            # Filtramos solo los presentes de ese día
             asistentes_hoy = df_asistencia[df_asistencia['fecha_dt'] == fecha_selecc]
-            lista_nombres_hoy = asistentes_hoy.iloc[:, 1].unique()
+            # Obtenemos la lista y la ORDENAMOS alfabéticamente
+            lista_nombres_hoy = sorted(asistentes_hoy.iloc[:, 1].unique())
             
             total_hoy = len(lista_nombres_hoy)
             fwds = 0
             backs = 0
             sin_id = 0
             
-            # Clasificamos uno por uno
             for jugador in lista_nombres_hoy:
                 nombre_limpio = str(jugador).strip().lower()
                 tipo = mapa_tipos.get(nombre_limpio, "desconocido")
                 
-                # Lógica de detección (ajusta las palabras clave según tu Excel)
-                if "foward" in tipo or "fwd" in tipo or "pilar" in tipo or "segunda" in tipo or "ala" in tipo or "octavo" in tipo or "hooker" in tipo:
+                if "forward" in tipo or "foward" in tipo or "fwd" in tipo or "pilar" in tipo or "segunda" in tipo or "ala" in tipo or "octavo" in tipo or "hooker" in tipo:
                     fwds += 1
                 elif "back" in tipo or "3/4" in tipo or "medio" in tipo or "apertura" in tipo or "centro" in tipo or "wing" in tipo or "fullback" in tipo:
                     backs += 1
                 else:
                     sin_id += 1
             
-            # Mostramos los contadores
+            # Contadores
             k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Total Presentes", total_hoy, border=True)
-            k2.metric("Fowards 🐗", fwds, border=True)
+            k1.metric("Total", total_hoy, border=True)
+            k2.metric("Forwards 🐗", fwds, border=True)
             k3.metric("Backs 🏃", backs, border=True)
             if sin_id > 0:
-                k4.metric("Sin Identificar ⚠️", sin_id, border=True, help="Nombres que no coinciden con la lista oficial")
+                k4.metric("Sin Identificar", sin_id, border=True)
             else:
                 k4.metric("Identificados", "100%", border=True)
+            
+            # --- NUEVO: LISTADO DE NOMBRES ---
+            st.write("---")
+            st.write(f"**📜 Lista de presentes ({fecha_selecc.strftime('%d/%m/%Y')}):**")
+            
+            # Creamos un DataFrame simple para mostrar la lista bonita
+            df_lista = pd.DataFrame(lista_nombres_hoy, columns=["Nombre del Jugador"])
+            st.dataframe(
+                df_lista, 
+                use_container_width=True, 
+                hide_index=True,
+                height=300 # Altura fija con scroll para no ocupar toda la pantalla
+            )
 
     else:
-        st.info("No hay registros de asistencia para mostrar.")
+        st.info("No hay registros de asistencia.")
 
     st.divider()
 
     # --- GRÁFICOS ---
     col_izq, col_der = st.columns(2)
     with col_izq:
-        st.subheader("⚖️ Roles (Plantel)")
+        st.subheader("⚖️ Roles")
         if 'Tipo' in df_jugadores.columns:
             source = df_jugadores['Tipo'].value_counts().reset_index()
             source.columns = ['Tipo', 'Cantidad']
@@ -178,7 +189,6 @@ def mostrar_dashboard(df_jugadores):
 def mostrar_plantel(df_jugadores):
     st.header("🏉 Plantel Superior")
     
-    # Normalizamos nombres
     if 'Nombre' in df_jugadores.columns:
         df_jugadores['Nombre'] = df_jugadores['Nombre'].astype(str).str.strip()
     if 'Apellido' in df_jugadores.columns:
@@ -222,10 +232,6 @@ def mostrar_plantel(df_jugadores):
         m3.metric("Semana", f"{p_sem:.0f}%")
         st.progress(p_anio/100)
         
-        st.divider()
-        st.write(f"**Puesto:** {datos.get('Puesto', '-')}")
-        st.write(f"**Celular:** {datos.get('Celular personal', '-')}")
-        
         with st.expander("Ver ficha completa"):
             st.write(datos.astype(str))
     else:
@@ -256,7 +262,7 @@ def main():
     menu = st.sidebar.radio("Ir a:", ["📊 Dashboard", "Plantel", "Asistencia", "Médico"])
     df = conector.cargar_datos("Jugadores")
     if df.empty:
-        st.error("No se pudo cargar la lista de jugadores. Revisa 'conector.py'")
+        st.error("No se pudo cargar la lista de jugadores.")
         return
         
     df.columns = [c.strip().capitalize() for c in df.columns]
