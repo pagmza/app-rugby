@@ -8,79 +8,97 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
-# --- FUNCIÓN NUEVA: TARJETAS HTML FLEXIBLES (LA SOLUCIÓN) ---
-def renderizar_tarjetas_flex(total, fwds, backs, sin_id):
+# --- FUNCIÓN DE VISUALIZACIÓN SEGURA (SOLUCIÓN DEFINITIVA) ---
+def renderizar_tarjetas_responsivas(total, fwds, backs, sin_id):
     """
-    Genera tarjetas HTML que realmente se ajustan al contenido y bajan de línea.
+    Renderiza tarjetas usando HTML/CSS puro separado para evitar errores de sintaxis.
+    Se ajusta automáticamente al ancho de la pantalla (baja de línea si es necesario).
     """
     
-    # Color para "Sin Identificar" (Rojo si hay errores, Gris si no)
-    color_sin_id = "#ff4b4b" if sin_id > 0 else "#262730"
-    borde_sin_id = "#ff4b4b" if sin_id > 0 else "#464b59"
-
-    # HTML y CSS inyectado directamente
-    html = f"""
+    # 1. DEFINIMOS EL ESTILO (CSS) - Sin variables Python para evitar conflictos
+    estilo_css = """
     <style>
-        .flex-container {{
+        .rugby-container {
             display: flex;
-            flex-wrap: wrap;       /* ESTO HACE LA MAGIA: Baja de línea si no cabe */
-            gap: 8px;              /* Espacio entre tarjetas */
-            justify-content: center; /* Centrar tarjetas */
+            flex-wrap: wrap;           /* Permite que bajen a la siguiente línea */
+            gap: 8px;                  /* Espacio entre tarjetas */
+            justify-content: center;   /* Centrado en pantalla */
+            width: 100%;
             margin-bottom: 20px;
-        }}
-        .flex-card {{
+        }
+        .rugby-card {
             background-color: #262730;
             border: 1px solid #464b59;
             border-radius: 8px;
-            padding: 8px 12px;     /* Relleno ajustado */
+            padding: 10px;
             text-align: center;
-            flex: 0 1 auto;        /* Ancho automático según contenido */
-            min-width: 60px;       /* Ancho mínimo para no romperse */
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-        }}
-        .flex-card h3 {{
-            margin: 0;
-            font-size: 12px;
-            color: #fafafa;
-            font-weight: normal;
-            white-space: nowrap;   /* Título en una sola línea */
-        }}
-        .flex-card p {{
-            margin: 0;
+            /* FLEXIBILIDAD TOTAL: */
+            flex: 1 1 80px;            /* Crece (1), Encoge (1), Base 80px */
+            min-width: 80px;           /* No ser más chico que 80px */
+            max-width: 150px;          /* No ser más grande que 150px */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .rugby-title {
+            font-size: 11px;
+            color: #e0e0e0;
+            margin-bottom: 2px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .rugby-value {
             font-size: 20px;
             font-weight: bold;
-            color: white;
-        }}
-        /* Estilo especial para alertas */
-        .card-alert {{
-            background-color: {color_sin_id}; 
-            border: 1px solid {borde_sin_id};
-        }}
+            color: #ffffff;
+            margin: 0;
+            line-height: 1.2;
+        }
+        .alert-card {
+            border-color: #ff4b4b !important;
+            background-color: #2e1818 !important;
+        }
+        .alert-text {
+            color: #ff4b4b !important;
+        }
     </style>
+    """
 
-    <div class="flex-container">
-        <div class="flex-card">
-            <h3>Total</h3>
-            <p>{total}</p>
+    # 2. DEFINIMOS LA CLASE PARA "SIN IDENTIFICAR"
+    clase_alerta = "alert-card" if sin_id > 0 else ""
+    texto_alerta = "alert-text" if sin_id > 0 else ""
+
+    # 3. DEFINIMOS EL HTML (CONTENIDO)
+    html_contenido = f"""
+    <div class="rugby-container">
+        <div class="rugby-card">
+            <div class="rugby-title">Total</div>
+            <div class="rugby-value">{total}</div>
         </div>
         
-        <div class="flex-card">
-            <h3>Fwds 🐗</h3>
-            <p>{fwds}</p>
+        <div class="rugby-card">
+            <div class="rugby-title">Fwds 🐗</div>
+            <div class="rugby-value">{fwds}</div>
         </div>
 
-        <div class="flex-card">
-            <h3>Backs 🏃</h3>
-            <p>{backs}</p>
+        <div class="rugby-card">
+            <div class="rugby-title">Backs 🏃</div>
+            <div class="rugby-value">{backs}</div>
         </div>
 
-        <div class="flex-card {'card-alert' if sin_id > 0 else ''}">
-            <h3>S/Identif.</h3>
-            <p>{sin_id}</p>
+        <div class="rugby-card {clase_alerta}">
+            <div class="rugby-title {texto_alerta}">S/Identif.</div>
+            <div class="rugby-value {texto_alerta}">{sin_id}</div>
         </div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+
+    # 4. INYECTAMOS TODO JUNTO
+    # unsafe_allow_html=True es OBLIGATORIO para que no salga texto plano
+    st.markdown(estilo_css + html_contenido, unsafe_allow_html=True)
+
 
 # --- FUNCIONES DE LIMPIEZA ---
 def limpiar_datos_asistencia(df):
@@ -120,7 +138,7 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 
 # --- PANTALLAS ---
 def mostrar_dashboard(df_jugadores):
-    st.title("📊 Tablero de Comando")
+    st.title("📊 Tablero de Comando V2.0")
     
     df_asistencia = conector.cargar_datos("DB_Asistencia")
     
@@ -132,8 +150,7 @@ def mostrar_dashboard(df_jugadores):
                 nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
             mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
 
-    # --- MÉTRICAS GLOBALES (Arriba) ---
-    # Estas las dejamos con st.metric normal porque se ven bien en 3 columnas
+    # --- MÉTRICAS GLOBALES ---
     total_plantel = len(df_jugadores)
     df_lesionados = conector.cargar_datos("Lesionados")
     lesionados_activos = 0
@@ -154,7 +171,7 @@ def mostrar_dashboard(df_jugadores):
     
     st.divider()
 
-    # --- ASISTENCIA POR DÍA (AQUÍ USAMOS LA NUEVA FUNCIÓN) ---
+    # --- ASISTENCIA POR DÍA ---
     st.subheader("📅 Asistencia por Día")
     
     if not df_asistencia.empty:
@@ -180,9 +197,9 @@ def mostrar_dashboard(df_jugadores):
                 else:
                     sin_id += 1
             
-            # --- REEMPLAZO DE ST.COLUMNS POR NUESTRO HTML FLEXIBLE ---
-            renderizar_tarjetas_flex(total_hoy, fwds, backs, sin_id)
-            # ---------------------------------------------------------
+            # === LLAMADA A LA FUNCIÓN SEGURA ===
+            renderizar_tarjetas_responsivas(total_hoy, fwds, backs, sin_id)
+            # ===================================
             
             st.write("---")
             with st.expander(f"📜 Ver lista ({total_hoy})", expanded=False):
