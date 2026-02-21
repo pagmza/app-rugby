@@ -8,50 +8,31 @@ import conector
 st.set_page_config(page_title="Gestión Rugby", layout="centered", page_icon="🏉")
 URL_FORMULARIO_ASISTENCIA = "https://docs.google.com/forms/d/e/1FAIpQLSfZF8sRpapNBPzpGxh07vr_W2sv6mPv2yfsmyM5EyG7MKCoJA/viewform"
 
-# --- FUNCIÓN NUEVA: UNIFICAR HOJAS (LA SOLUCIÓN A TU PROBLEMA) ---
+# --- 1. FUNCIÓN DE UNIFICACIÓN ---
 def cargar_asistencia_unificada():
-    """
-    Carga datos de 'DB_Asistencia' (Manual/Viejo) y de 'Respuestas de formulario 3' (QR),
-    los estandariza y los une en una sola tabla para el Dashboard.
-    """
-    # 1. Cargar hoja manual
     df_manual = conector.cargar_datos("DB_Asistencia")
-    
-    # 2. Cargar hoja del Formulario (QR)
-    # ¡IMPORTANTE! Asegúrate de que el nombre sea EXACTO al de la pestaña en Google Sheets
     df_qr = conector.cargar_datos("Respuestas de formulario 3")
     
-    # Lista para acumular los dataframes válidos
     dfs_a_unir = []
 
-    # Procesar Manual
     if not df_manual.empty:
-        # Nos aseguramos de tomar solo las primeras 2 columnas (Fecha, Nombre)
-        df_manual = df_manual.iloc[:, 0:2]
-        df_manual.columns = ["fecha", "nombre"] # Renombramos estándar
-        dfs_a_unir.append(df_manual)
+        temp = df_manual.iloc[:, 0:2].copy()
+        temp.columns = ["fecha", "nombre"]
+        dfs_a_unir.append(temp)
 
-    # Procesar QR
     if not df_qr.empty:
-        # El formulario suele tener: Marca temporal (0) y Nombre (1)
-        df_qr = df_qr.iloc[:, 0:2]
-        df_qr.columns = ["fecha", "nombre"] # Renombramos igual que el manual
-        dfs_a_unir.append(df_qr)
+        temp = df_qr.iloc[:, 0:2].copy()
+        temp.columns = ["fecha", "nombre"]
+        dfs_a_unir.append(temp)
 
-    # Si no hay datos en ninguno, devolvemos vacío
     if not dfs_a_unir:
         return pd.DataFrame(columns=["fecha", "nombre"])
 
-    # 3. UNIÓN MÁGICA
     df_total = pd.concat(dfs_a_unir, ignore_index=True)
-    
     return df_total
 
-# --- FUNCIÓN DE VISUALIZACIÓN (TARJETAS) ---
+# --- 2. FUNCIÓN DE VISUALIZACIÓN (TARJETAS) ---
 def renderizar_tarjetas(metricas):
-    """
-    Genera tarjetas HTML eliminando espacios para evitar errores visuales.
-    """
     estilo = """
 <style>
 .flex-wrapper {
@@ -108,6 +89,7 @@ def renderizar_tarjetas(metricas):
         clase_texto = "text-alert" if m.get('alert') else ""
         valor = m['value']
         label = m['label']
+        
         delta_html = ""
         if 'delta' in m and m['delta'] != 0:
             d_val = m['delta']
@@ -116,27 +98,44 @@ def renderizar_tarjetas(metricas):
             delta_html = f'<div class="card-delta {color}">{simbolo} {abs(d_val)}</div>'
         elif 'subtext' in m:
              delta_html = f'<div class="card-delta delta-neu">{m["subtext"]}</div>'
+             
         cards_html += f'<div class="custom-card {clase_borde}"><div class="card-label">{label}</div><div class="card-value {clase_texto}">{valor}</div>{delta_html}</div>'
 
-    html_final = f"{estilo}<div class='flex-wrapper'>{cards_html}</div>"
-    st.markdown(html_final, unsafe_allow_html=True)
+    st.markdown(f"{estilo}<div class='flex-wrapper'>{cards_html}</div>", unsafe_allow_html=True)
 
-# --- FUNCIONES DE LIMPIEZA ---
+# --- 3. FUNCIONES AUXILIARES (AQUÍ ESTÁ LA NUEVA MAGIA) ---
 def limpiar_datos_asistencia(df):
     if df.empty: return df
     
-    # Como ya unificamos nombres en la función de carga, usamos nombres fijos
-    col_fecha = "fecha"
-    col_nombre = "nombre"
+    # 1. Aseguramos que la columna nombre sea texto puro
+    df['nombre'] = df['nombre'].astype(str)
     
-    # Limpieza
-    df[col_nombre] = df[col_nombre].astype(str).str.strip() 
-    # format='mixed' es clave aquí porque el Formulario manda "2024-02-15 14:00" y manual "15/02/2024"
-    df['fecha_dt'] = pd.to_datetime(df[col_fecha], dayfirst=True, format='mixed', errors='coerce').dt.date
-    df = df.dropna(subset=['fecha_dt'])
+    # 2. Función súper estricta para separar las celdas agrupadas
+    def extraer_nombres(texto):
+        # Si está vacío o es un error de pandas, devolver lista vacía
+        if texto.lower() in ['nan', 'none', '']: 
+            return []
+        
+        # Separar por comas (formato Formulario de Google) y limpiar espacios
+        # Ej: "Juan , Diego" -> ["Juan", "Diego"]
+        lista_nombres = [nombre.strip() for nombre in texto.split(',') if nombre.strip()]
+        return lista_nombres
+
+    # 3. Aplicamos la función (ahora cada celda es una lista real de Python)
+    df['nombre'] = df['nombre'].apply(extraer_nombres)
+    
+    # 4. EXPLODE: Esta es la instrucción que clona las filas. 
+    # 1 fila con 3 nombres -> 3 filas con 1 nombre cada una.
+    df = df.explode('nombre').reset_index(drop=True)
+    
+    # 5. Limpiamos las fechas normalmente
+    df['fecha_dt'] = pd.to_datetime(df['fecha'], dayfirst=True, format='mixed', errors='coerce').dt.date
+    
+    # 6. Borramos filas que hayan quedado sin fecha o sin nombre tras la explosión
+    df = df.dropna(subset=['fecha_dt', 'nombre'])
+    
     return df
 
-# --- FUNCIONES DE CÁLCULO ---
 def calcular_estado_asistencia(porcentaje):
     if porcentaje > 85: return "🟢", "Excelente"
     elif porcentaje >= 65: return "🟡", "Regular"
@@ -144,16 +143,19 @@ def calcular_estado_asistencia(porcentaje):
 
 def obtener_metricas_jugador(df_asistencia, nombre_jugador):
     if df_asistencia.empty: return 0, 0, 0
+    
     hoy = datetime.now().date()
     inicio_mes = hoy.replace(day=1)
     inicio_semana = hoy - timedelta(days=hoy.weekday())
+    
     df_mes = df_asistencia[df_asistencia['fecha_dt'] >= inicio_mes]
     df_semana = df_asistencia[df_asistencia['fecha_dt'] >= inicio_semana]
+    
     total_anio = df_asistencia['fecha_dt'].nunique()
     total_mes = df_mes['fecha_dt'].nunique()
     total_semana = df_semana['fecha_dt'].nunique()
     
-    col_nombre = "nombre" # Usamos el nombre estandarizado
+    col_nombre = "nombre"
     nombre_jugador = str(nombre_jugador).strip()
     
     asist_anio = df_asistencia[df_asistencia[col_nombre] == nombre_jugador]['fecha_dt'].nunique()
@@ -170,23 +172,22 @@ def obtener_metricas_jugador(df_asistencia, nombre_jugador):
 def mostrar_dashboard(df_jugadores):
     st.title("📊 Tablero de Comando")
     
-    # --- CAMBIO IMPORTANTE: USAMOS LA CARGA UNIFICADA ---
     df_asistencia = cargar_asistencia_unificada()
     
     mapa_tipos = {}
-    if not df_jugadores.empty and 'Nombre' in df_jugadores.columns and 'Tipo' in df_jugadores.columns:
+    if not df_jugadores.empty:
         for index, row in df_jugadores.iterrows():
-            nombre_norm = str(row['Nombre']).strip().lower()
-            if 'Apellido' in df_jugadores.columns:
-                nombre_norm = (str(row['Nombre']).strip() + " " + str(row['Apellido']).strip()).lower()
-            mapa_tipos[nombre_norm] = str(row['Tipo']).lower()
+            if 'Nombre' in df_jugadores.columns and 'Tipo' in df_jugadores.columns:
+                n = str(row['Nombre']).strip()
+                if 'Apellido' in df_jugadores.columns:
+                    n += " " + str(row['Apellido']).strip()
+                mapa_tipos[n.lower()] = str(row['Tipo']).lower()
 
-    # --- 1. MÉTRICAS GLOBALES ---
     total_plantel = len(df_jugadores)
     df_lesionados = conector.cargar_datos("Lesionados")
     lesionados_activos = 0
     if not df_lesionados.empty:
-        df_lesionados.columns = [c.strip().lower() for c in df_lesionados.columns]
+        df_lesionados.columns = [str(c).strip().lower() for c in df_lesionados.columns]
         col_gravedad = next((c for c in df_lesionados.columns if 'gravedad' in c or 'estado' in c), None)
         if col_gravedad:
             activos = df_lesionados[df_lesionados[col_gravedad].astype(str).str.lower().str.contains("rojo|amarillo", na=False)]
@@ -195,77 +196,61 @@ def mostrar_dashboard(df_jugadores):
     disponibles = total_plantel - lesionados_activos
     pct_disp = (disponibles / total_plantel * 100) if total_plantel > 0 else 0
 
-    datos_globales = [
+    renderizar_tarjetas([
         {'label': 'Plantel', 'value': total_plantel},
         {'label': 'Disponibles', 'value': disponibles, 'subtext': f"{pct_disp:.0f}% Ok"},
         {'label': 'Lesionados', 'value': lesionados_activos, 'alert': lesionados_activos > 0}
-    ]
-    renderizar_tarjetas(datos_globales)
+    ])
     
     st.divider()
-
-    # --- 2. ASISTENCIA POR DÍA ---
     st.subheader("📅 Asistencia por Día")
     
     if not df_asistencia.empty:
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         
-        # Filtro de fechas válidas
         fechas_unicas = sorted(df_asistencia['fecha_dt'].unique(), reverse=True)
         fecha_selecc = st.selectbox("Selecciona Fecha:", fechas_unicas)
         
         if fecha_selecc:
-            asistentes_hoy = df_asistencia[df_asistencia['fecha_dt'] == fecha_selecc]
-            # Usamos la columna "nombre" que ya estandarizamos
-            lista_nombres_hoy = sorted(asistentes_hoy['nombre'].unique())
+            asistentes = df_asistencia[df_asistencia['fecha_dt'] == fecha_selecc]
+            lista_presentes = sorted(asistentes['nombre'].unique())
             
-            total_hoy = len(lista_nombres_hoy)
+            total = len(lista_presentes)
             fwds = 0
             backs = 0
             sin_id = 0
-            for jugador in lista_nombres_hoy:
-                nombre_limpio = str(jugador).strip().lower()
-                tipo = mapa_tipos.get(nombre_limpio, "desconocido")
-                if "forward" in tipo or "foward" in tipo or "fwd" in tipo or "pilar" in tipo or "segunda" in tipo or "ala" in tipo or "octavo" in tipo or "hooker" in tipo:
+            
+            for p in lista_presentes:
+                tipo = mapa_tipos.get(str(p).strip().lower(), "desconocido")
+                if any(x in tipo for x in ["forward", "foward", "fwd", "pilar", "hooker", "segunda", "ala", "octavo"]):
                     fwds += 1
-                elif "back" in tipo or "3/4" in tipo or "medio" in tipo or "apertura" in tipo or "centro" in tipo or "wing" in tipo or "fullback" in tipo:
+                elif any(x in tipo for x in ["back", "3/4", "medio", "apertura", "centro", "wing", "fullback"]):
                     backs += 1
                 else:
                     sin_id += 1
             
-            datos_asistencia = [
-                {'label': 'Total', 'value': total_hoy},
+            datos_dia = [
+                {'label': 'Total', 'value': total},
                 {'label': 'Fwds 🐗', 'value': fwds},
                 {'label': 'Backs 🏃', 'value': backs}
             ]
             if sin_id > 0:
-                datos_asistencia.append({'label': 'S/Identif.', 'value': sin_id, 'alert': True})
+                datos_dia.append({'label': 'S/Identif.', 'value': sin_id, 'alert': True})
             else:
-                 datos_asistencia.append({'label': 'Identif.', 'value': '100%', 'subtext': 'Ok'})
-
-            renderizar_tarjetas(datos_asistencia)
+                datos_dia.append({'label': 'Identif.', 'value': '100%', 'subtext': 'Ok'})
+                
+            renderizar_tarjetas(datos_dia)
             
             st.write("---")
-            with st.expander(f"📜 Ver lista de presentes ({total_hoy})", expanded=False):
-                df_lista = pd.DataFrame(lista_nombres_hoy, columns=["Nombre del Jugador"])
-                st.dataframe(df_lista, use_container_width=True, hide_index=True)
+            with st.expander(f"📜 Ver lista ({total})"):
+                st.dataframe(pd.DataFrame(lista_presentes, columns=["Nombre"]), use_container_width=True, hide_index=True)
     else:
-        st.info("No hay registros.")
+        st.info("No hay datos de asistencia cargados.")
 
     st.divider()
-
-    # --- GRÁFICOS ---
-    col_izq, col_der = st.columns(2)
-    with col_izq:
-        st.subheader("⚖️ Roles")
-        if 'Tipo' in df_jugadores.columns:
-            source = df_jugadores['Tipo'].value_counts().reset_index()
-            source.columns = ['Tipo', 'Cantidad']
-            base = alt.Chart(source).encode(theta=alt.Theta("Cantidad", stack=True), color="Tipo")
-            pie = base.mark_arc(outerRadius=80) + base.mark_text(radius=100).encode(text="Cantidad", color=alt.value("black"))
-            st.altair_chart(pie, use_container_width=True)
-
-    with col_der:
+    
+    col1, col2 = st.columns(2)
+    with col2:
         st.subheader("📈 Evolución")
         if not df_asistencia.empty:
             diaria = df_asistencia.groupby('fecha_dt')['nombre'].nunique().reset_index()
@@ -279,6 +264,7 @@ def mostrar_dashboard(df_jugadores):
 
 def mostrar_plantel(df_jugadores):
     st.header("🏉 Plantel Superior")
+    
     if 'Nombre' in df_jugadores.columns:
         df_jugadores['Nombre'] = df_jugadores['Nombre'].astype(str).str.strip()
     if 'Apellido' in df_jugadores.columns:
@@ -286,22 +272,21 @@ def mostrar_plantel(df_jugadores):
         df_jugadores['Nombre Completo'] = df_jugadores['Nombre'] + " " + df_jugadores['Apellido']
     else:
         df_jugadores['Nombre Completo'] = df_jugadores['Nombre']
-        
-    # --- CAMBIO IMPORTANTE: USAMOS LA CARGA UNIFICADA ---
+
     df_asistencia = cargar_asistencia_unificada()
     mapa_asistencia = {}
     
     if not df_asistencia.empty:
         df_asistencia = limpiar_datos_asistencia(df_asistencia)
         total_days = df_asistencia['fecha_dt'].nunique()
+        
         if total_days > 0:
-            col_nombre_asist = "nombre"
-            conteos = df_asistencia.groupby(col_nombre_asist)['fecha_dt'].nunique()
+            conteos = df_asistencia.groupby('nombre')['fecha_dt'].nunique()
             for jugador, count in conteos.items():
                 pct = (count / total_days) * 100
                 emoji, _ = calcular_estado_asistencia(pct)
                 mapa_asistencia[jugador] = f"{emoji} {pct:.0f}%"
-                
+    
     df_jugadores['Asistencia'] = df_jugadores['Nombre Completo'].apply(lambda x: mapa_asistencia.get(x, "🔴 0%"))
     
     lista = sorted(df_jugadores['Nombre Completo'].unique().tolist())
@@ -314,12 +299,11 @@ def mostrar_plantel(df_jugadores):
         st.subheader(f"👤 {seleccion}")
         p_anio, p_mes, p_sem = obtener_metricas_jugador(df_asistencia, seleccion)
         
-        metricas_jugador = [
+        renderizar_tarjetas([
             {'label': 'Año', 'value': f"{p_anio:.0f}%"},
             {'label': 'Mes', 'value': f"{p_mes:.0f}%"},
             {'label': 'Semana', 'value': f"{p_sem:.0f}%"}
-        ]
-        renderizar_tarjetas(metricas_jugador)
+        ])
         st.progress(p_anio/100)
         
         with st.expander("Ver ficha completa"):
@@ -339,9 +323,8 @@ def modulo_asistencia(df_jugadores):
             sel = st.multiselect("Presentes:", names)
             if st.form_submit_button("Guardar"):
                 for p in sel:
-                    # Esto guarda en DB_Asistencia (Manual), que luego se une con la otra
                     conector.guardar_registro("DB_Asistencia", [datetime.now().strftime("%d/%m/%Y"), p, "Manual"])
-                st.success("Guardado.")
+                st.success("Guardado. (Se unirá automáticamente con los QR)")
 
 def modulo_medico(df):
     st.header("🏥 Médico")
@@ -350,16 +333,18 @@ def modulo_medico(df):
 
 def main():
     menu = st.sidebar.radio("Ir a:", ["📊 Dashboard", "Plantel", "Asistencia", "Médico"])
-    df = conector.cargar_datos("Jugadores")
-    if df.empty:
-        st.error("No se pudo cargar la lista de jugadores.")
-        return
-    df.columns = [c.strip().capitalize() for c in df.columns]
+    df_jugadores = conector.cargar_datos("Jugadores")
     
-    if menu == "📊 Dashboard": mostrar_dashboard(df)
-    elif menu == "Plantel": mostrar_plantel(df)
-    elif menu == "Asistencia": modulo_asistencia(df)
-    elif menu == "Médico": modulo_medico(df)
+    if df_jugadores.empty:
+        st.error("Error: No se pudo cargar la lista de Jugadores.")
+        return
+        
+    df_jugadores.columns = [c.strip().capitalize() for c in df_jugadores.columns]
+    
+    if menu == "📊 Dashboard": mostrar_dashboard(df_jugadores)
+    elif menu == "Plantel": mostrar_plantel(df_jugadores)
+    elif menu == "Asistencia": modulo_asistencia(df_jugadores)
+    elif menu == "Médico": modulo_medico(df_jugadores)
 
 if __name__ == "__main__":
     main()
